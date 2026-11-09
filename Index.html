@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Le Serveur — jeu du patron Médiateur</title>
+<style>
+:root{--bg:#1b1633;--s1:#261f47;--s2:#33295c;--tx:#f3efff;--mu:#a99fd0;--c1:#ff5d8f;--c2:#3ee0cf;--good:#7be38a;--bad:#ff7a59}
+*{box-sizing:border-box;margin:0}
+html,body{background:var(--bg);color:var(--tx);font-family:"Trebuchet MS",system-ui,sans-serif;line-height:1.45}
+body{min-height:100vh;padding:18px}
+h1,h2,h3,.big{font-family:Impact,"Arial Black",system-ui,sans-serif;font-weight:400;letter-spacing:.02em}
+a{color:inherit}
+.wrap{max-width:560px;margin:0 auto}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px}
+.bar a{color:var(--mu);text-decoration:none}
+button,.btn{font:inherit;font-weight:700;border:0;border-radius:12px;padding:14px 18px;background:var(--s2);color:var(--tx);cursor:pointer;text-decoration:none;display:block;width:100%;text-align:center}
+button:hover:not(:disabled),.btn:hover{filter:brightness(1.2)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button:focus-visible,a:focus-visible{outline:3px solid var(--c2);outline-offset:2px}
+.sans{--ac:var(--c1);--on:#2a0716}
+.avec{--ac:var(--c2);--on:#06302b}
+.go{background:var(--ac);color:var(--on);font-size:1.2rem}
+.card{background:var(--s1);border-radius:14px;padding:18px;margin-bottom:12px}
+.edge{border-left:6px solid var(--ac)}
+.mu{color:var(--mu)}
+.big{font-size:clamp(2rem,9vw,3.2rem);line-height:1.05}
+.grid{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+.pill{display:inline-block;padding:3px 12px;border-radius:99px;background:var(--s2);margin:3px 2px}
+.emo{font-size:4.5rem;text-align:center}
+.center{text-align:center}
+.chrono{font-family:"Courier New",monospace;font-size:1.8rem;font-weight:700;color:var(--ac)}
+ul{padding-left:20px}
+li{margin:6px 0}
+.line{padding:8px 0;border-top:1px solid var(--s2)}
+.line:first-child{border-top:0}
+.hint{margin-top:10px;color:var(--mu)}
+.done{color:var(--good);font-weight:700;margin-top:10px}
+.err{color:var(--bad);font-weight:700}
+@media(prefers-reduced-motion:no-preference){.pop{animation:pop .25s ease-out}@keyframes pop{from{transform:scale(.96);opacity:.4}to{transform:none;opacity:1}}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+const R=[
+{id:1,n:"Sniper",e:"🎯"},{id:2,n:"Soigneur",e:"💉"},{id:3,n:"Tank",e:"🛡️"},{id:4,n:"Éclaireur",e:"🔭"},
+{id:5,n:"Mécanicien",e:"🔧"},{id:6,n:"Scoreboard",e:"📊"},{id:7,n:"Minimap",e:"🗺️"},{id:8,n:"Anti-cheat",e:"🚫"},
+{id:9,n:"Boutique",e:"🛒"},{id:10,n:"Chat vocal",e:"🎧"},{id:11,n:"Caster",e:"🎙️"},{id:12,n:"Spectateur",e:"👀"},
+{id:13,n:"Matchmaking",e:"🔀"},{id:14,n:"Modérateur",e:"🔨"}];
+const roleOf=(id,m)=>id===15?(m==="avec"?{id:15,n:"Médiateur",e:"🖥️"}:{id:15,n:"Logger",e:"📒"}):R.find(r=>r.id===id);
+const E=[
+{t:"Le Tank est touché",src:3,m:"Tu es touché. Il te faut une réparation : {d}.",d:["chenille","tourelle"],to:{
+ 5:{a:"Répare le Tank en mimant",q:"Quelle pièce réparer ?",o:["chenille","tourelle","blindage","moteur"]},
+ 6:{a:"Ajoute une mort au Tank"},7:{a:"Affiche une croix rouge"},11:{a:"Commente : « Il est à terre ! »"}}},
+{t:"Le Sniper n'a plus de munitions",src:1,m:"Tu n'as plus de munitions. Il te faut des balles {d}.",d:["perforantes","explosives"],to:{
+ 9:{a:"Donne-lui les balles en mimant",q:"Quelles balles donner ?",o:["perforantes","explosives","fumigènes","silencieuses"]},
+ 3:{a:"Lève ton bouclier devant le Sniper"},6:{a:"Retire 50 pièces d'or à l'équipe"},15:{a:"Note l'achat dans ton carnet"}}},
+{t:"Un tricheur est détecté",src:8,m:"Tu as détecté un tricheur. Son pseudo : {d}.",d:["xX_Dark_Xx","Kévin_Pro"],to:{
+ 14:{a:"Annonce le ban à voix haute",q:"Quel pseudo bannir ?",o:["xX_Dark_Xx","Kévin_Pro","N0scope","Léa_GG"]},
+ 10:{a:"Coupe son micro en mimant"},6:{a:"Barre son nom"},1:{a:"Pointe le tricheur du doigt"}}},
+{t:"Un ennemi est repéré",src:4,m:"Tu as repéré un ennemi côté {d}.",d:["gauche","droite"],to:{
+ 1:{a:"Tire en mimant",q:"Où viser ?",o:["gauche","droite","derrière","en haut"]},
+ 3:{a:"Avance d'un pas"},7:{a:"Pose un point rouge"},10:{a:"Crie « Contact ! »"},2:{a:"Soigne l'Éclaireur en mimant"}}},
+{t:"Le Soigneur n'a plus de mana",src:2,m:"Tu n'as plus de mana. Il te faut une potion {d}.",d:["bleue","verte"],to:{
+ 9:{a:"Vends-lui la potion en mimant",q:"Quelle potion vendre ?",o:["bleue","verte","rouge","violette"]},
+ 12:{a:"Fais la ola"},11:{a:"Commente : « Il est à sec ! »"},1:{a:"Protège le Soigneur avec ton arme"}}},
+{t:"Une tourelle est posée",src:5,m:"Tu as posé une tourelle en zone {d}.",d:["A","B"],to:{
+ 7:{a:"Ajoute l'icône sur la carte",q:"Quelle zone marquer ?",o:["A","B","C","D"]},
+ 3:{a:"Place-toi à côté"},4:{a:"Surveille la zone"}}},
+{t:"Un nouveau joueur arrive",src:13,m:"Un nouveau joueur rejoint la partie. Il s'appelle {d}.",d:["Tom","Nina"],to:{
+ 6:{a:"Ajoute son nom",q:"Quel nom ajouter ?",o:["Tom","Nina","Lucas","Sarah"]},
+ 7:{a:"Ajoute son point sur la carte"},10:{a:"Dis « Bienvenue ! »"},11:{a:"Présente-le à la classe"},15:{a:"Note l'arrivée dans ton carnet"},4:{a:"Fais visiter la zone au nouveau en mimant"}}},
+{t:"Drapeau capturé",src:4,m:"Tu as capturé le drapeau {d}.",d:["rouge","bleu"],to:{
+ 11:{a:"Crie « DRAPEAU ! »",q:"Quelle équipe annoncer ?",o:["rouge","bleu","vert","jaune"]},
+ 6:{a:"Ajoute 1 point à l'équipe"},3:{a:"Passe en défense"},9:{a:"Débloque un bonus en mimant"}}},
+{t:"La boutique est en rupture",src:9,m:"Ta boutique est en rupture. Il te faut du {d}.",d:["fer","cristal"],to:{
+ 5:{a:"Livre la ressource en mimant",q:"Quelle ressource livrer ?",o:["fer","cristal","bois","charbon"]},
+ 6:{a:"Retire 30 pièces d'or"},15:{a:"Note la rupture dans ton carnet"}}}];
+const RDS={sans:[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,8]],avec:[[0,1,2],[3,4,5],[6,7,8]]};
+const $=s=>document.querySelector(s);
+const app=$("#app");
+const S={key:"",m:"",r:0,step:0,times:[],t0:0,ok:{},open:{},sel:{},msg:{},bad:0,lock:0};
+let tick=null;
+const vi=m=>m==="sans"?0:1;
+const rd=()=>RDS[S.m];
+const dd=(e,ei,m,step)=>e.d[(vi(m)+(rd().slice(0,step-1).some(r=>r.includes(ei))?1:0))%2];
+const tg=(e,m)=>Object.entries(e.to).map(([k,o])=>[+k,o]).filter(([k])=>m==="sans"||k!==15);
+const pill=(k,m)=>`<span class="pill">${roleOf(k,m).e} ${roleOf(k,m).n}</span>`;
+const fmt=s=>String(Math.floor(s/60)).padStart(2,"0")+":"+String(Math.floor(s%60)).padStart(2,"0");
+const bar=(back,label)=>`<div class="bar"><span class="mu">${label||""}</span><a href="${back}">← Retour</a></div>`;
+const lab=m=>m==="sans"?"Sans médiateur":"Avec médiateur";
+
+function home(){
+  app.className="wrap";
+  app.innerHTML=`<h1 class="big" style="margin-bottom:8px">Le Serveur</h1>
+  <p class="mu" style="margin-bottom:18px">Choisis le mode de la manche.</p>
+  <a class="card sans edge" href="#sans" style="text-decoration:none;display:block"><h2>Sans médiateur</h2><p class="mu">Les joueurs se cherchent et se parlent directement.</p></a>
+  <a class="card avec edge" href="#avec" style="text-decoration:none;display:block"><h2>Avec médiateur</h2><p class="mu">Tout passe par un joueur au centre.</p></a>`;
+}
+
+function pick(m){
+  const all=[...R,roleOf(15,m)];
+  app.className="wrap "+m;
+  app.innerHTML=bar("#",lab(m))+`
+  <h2 style="margin-bottom:6px">Choisis ta classe</h2>
+  <p class="mu" style="margin-bottom:14px">${m==="avec"?"Une seule personne prend le Médiateur. ":""}Personne ne prend la même classe.</p>
+  <div class="grid">${all.map(r=>`<a class="btn" href="#${m}/${r.id}">${r.e} ${r.n}</a>`).join("")}</div>`;
+}
+
+function rules(m,id){
+  if(m==="avec"&&id===15)return["Chaque joueur va venir te dire sa classe.","Retiens qui est qui.","À chaque étape, plusieurs urgences arrivent en même temps : tu es le seul à savoir qui doit réagir."];
+  const base=m==="sans"
+    ?["Garde ta classe secrète.","Tu ne la dis que si on te demande « Tu es le "+roleOf(id,m).n+" ? ».","Tu ne connais que ta carte, personne n'a de liste."]
+    :["Va dire ta classe au Médiateur, une seule fois.","Ensuite, tu ne parles plus qu'à lui.","Interdit d'aller voir directement un autre joueur."];
+  return[...base,"Pendant que tu cherches quelqu'un, on peut aussi venir te prévenir. Reste attentif.","À chaque étape, on te demandera si quelqu'un est venu te prévenir d'une urgence. Réponds honnêtement : une mauvaise réponse te bloque 4 secondes."];
+}
+
+function ready(m,id){
+  const r=roleOf(id,m);
+  app.className="wrap "+m;
+  app.innerHTML=bar("#"+m,lab(m))+`
+  <div class="card pop"><div class="emo">${r.e}</div><h1 class="big center">${r.n}</h1></div>
+  <div class="card edge"><h3 style="margin-bottom:6px">Avant de commencer</h3><ul>${rules(m,id).map(x=>`<li>${x}</li>`).join("")}</ul></div>
+  <button class="go" id="next">Étape 1</button>`;
+  $("#next").onclick=nextStep;
+}
+
+function block(e,ei,id,m,step){
+  const d=dd(e,ei,m,step);
+  const t=tg(e,m);
+  const wrap=(tag,html)=>({need:false,html:`<div class="card edge pop"><p class="mu">${tag}</p><h3 style="margin:2px 0 8px">${e.t}</h3>${html}</div>`});
+  if(id===e.src){
+    const msg=e.m.replace("{d}",`<b>${d}</b>`);
+    if(m==="sans")return wrap("C'est à toi",`<p>${msg}</p><p style="margin-top:8px">Va prévenir :</p><p>${t.map(([k])=>pill(k,m)).join("")}</p><p class="hint">Tu ne sais pas qui ils sont. Pose la question à voix haute, cherche-les, et dis-leur ce dont tu as besoin.</p>`);
+    return wrap("C'est à toi",`<p>${msg}</p><p style="margin-top:8px">Va voir le Médiateur et dis-lui ce qui t'arrive, avec les détails.</p><p class="hint">Ne parle à personne d'autre.</p>`);
+  }
+  if(m==="avec"&&id===15)return wrap("Tu es le Médiateur",`<p>${roleOf(e.src,m).n} va venir te voir et te dire ce qu'il lui faut.</p><p style="margin-top:8px">Va voir chacun de ces joueurs et dis-lui quoi faire. Transmets-lui bien les détails.</p>${t.map(([k,o])=>`<div class="line"><b>${roleOf(k,m).e} ${roleOf(k,m).n}</b><br>${o.a}</div>`).join("")}`);
+  return null;
+}
+
+function wait(id,m,step){
+  const evs=rd()[step-1];
+  const inv=evs.filter(ei=>E[ei].to[id]);
+  const mine=inv.filter(ei=>!S.ok[step+"-"+ei]);
+  const locked=Date.now()<S.lock;
+  const msg=S.msg[step]&&locked?`<p class="err" style="margin-top:8px">${S.msg[step]}</p>`:"";
+  const card=(h,html,need)=>({need,html:`<div class="card edge pop"><p class="mu">À vérifier</p><h3 style="margin:2px 0 8px">${h}</h3>${html}</div>`});
+  const dis=locked?" disabled":"";
+  const yn=`<div class="grid" style="margin-top:10px"><button data-yn="yes"${dis}>Oui</button><button data-yn="no"${dis}>Non</button></div>${msg}`;
+  if(inv.length===0){
+    if(S.ok[step+"-none"])return card("Personne n'est venu",`<p class="done">✅ Bien vu, personne ne devait te prévenir.</p>`);
+    return card("Quelqu'un est venu te prévenir d'une urgence ?",yn,true);
+  }
+  if(mine.length===0)return card("Tout le monde est passé",`<p class="done">✅ Tu as été prévenu de tout.</p>`);
+  if(!S.open[step])return card("Quelqu'un est venu te prévenir d'une urgence ?",yn,true);
+  const sel=S.sel[step];
+  if(sel===undefined||sel===null)return card("De quelle urgence ?",`<div class="grid" style="margin-top:8px">${evs.map(ei=>`<button data-u="${ei}"${dis}>${E[ei].t}</button>`).join("")}</div>${msg}`,true);
+  const e=E[sel],o=e.to[id],key=step+"-"+sel;
+  if(!o.q)return card(e.t,`<p>Fais : <b>${o.a}</b></p><button style="margin-top:10px" data-done="${key}">C'est fait</button>`,true);
+  return card(e.t,`<p><b>${o.q}</b></p><div class="grid" style="margin-top:8px">${o.o.map((x,i)=>`<button data-k="${key}" data-e="${sel}" data-i="${i}"${dis}>${x}</button>`).join("")}</div>${msg}`,true);
+}
+
+function startTimer(){
+  clearInterval(tick);
+  tick=setInterval(()=>{const c=$("#chrono");if(c)c.textContent=fmt((Date.now()-S.t0)/1000)},250);
+}
+
+function nextStep(){
+  if(S.step>0)S.times.push((Date.now()-S.t0)/1000);
+  S.step++;
+  S.t0=Date.now();
+  draw();
+}
+
+function draw(){
+  clearInterval(tick);
+  const{m,r:id}=S;
+  const N=rd().length;
+  app.className="wrap "+m;
+  if(S.step===0){ready(m,id);return}
+  if(S.step>N){
+    const tot=S.times.reduce((a,b)=>a+b,0);
+    app.innerHTML=bar("#"+m)+`<div class="card pop center"><div class="emo">🏁</div><h1 class="big">Manche terminée</h1></div>
+    <div class="card edge">${S.times.map((x,i)=>`<div class="line">Étape ${i+1} : <b>${fmt(x)}</b></div>`).join("")}<div class="line"><b>Total : ${fmt(tot)}</b></div><div class="line">Moyenne par étape : <b>${fmt(tot/N)}</b></div><div class="line">Mauvais choix : <b>${S.bad}</b></div></div>
+    <a class="btn go" href="#">Changer de mode</a>`;
+    return;
+  }
+  const evs=rd()[S.step-1];
+  const blocks=evs.map(ei=>block(E[ei],ei,id,m,S.step)).filter(Boolean);
+  if(!(m==="avec"&&id===15))blocks.push(wait(id,m,S.step));
+  const pending=blocks.some(b=>b.need);
+  const r=roleOf(id,m);
+  app.innerHTML=`<div class="bar"><span class="mu">${r.e} ${r.n}</span><span class="chrono" id="chrono">${fmt((Date.now()-S.t0)/1000)}</span></div>
+  <p class="mu" style="margin-bottom:8px">Étape ${S.step} sur ${N} · ${evs.length} urgences</p>
+  ${blocks.map(b=>b.html).join("")}
+  <button class="go" id="next"${pending?" disabled":""}>${S.step===N?"Terminer":"Étape "+(S.step+1)}</button>`;
+  $("#next").onclick=nextStep;
+  const step=S.step;
+  const fail=text=>{S.bad++;S.lock=Date.now()+4000;S.msg[step]=text;setTimeout(draw,4000);draw()};
+  const resolve=key=>{S.ok[key]=true;S.open[step]=false;S.sel[step]=null;draw()};
+  const inv=evs.filter(ei=>E[ei].to[id]);
+  const left=inv.filter(ei=>!S.ok[step+"-"+ei]);
+  app.querySelectorAll("[data-yn]").forEach(b=>b.onclick=()=>{
+    const yes=b.dataset.yn==="yes";
+    if(yes&&left.length){S.open[step]=true;draw()}
+    else if(!yes&&inv.length===0){S.ok[step+"-none"]=true;draw()}
+    else fail(yes?"Personne ne devait te prévenir. Dis à la personne venue qu'elle s'est trompée de joueur.":"Quelqu'un doit venir te voir. Attends-le.");
+  });
+  app.querySelectorAll("[data-u]").forEach(b=>b.onclick=()=>{
+    const ei=+b.dataset.u;
+    if(left.includes(ei)){S.sel[step]=ei;draw()}
+    else fail("Cette urgence ne te concerne pas. Redemande à la personne venue.");
+  });
+  app.querySelectorAll("[data-done]").forEach(b=>b.onclick=()=>resolve(b.dataset.done));
+  app.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{
+    const ei=+b.dataset.e;
+    if(E[ei].to[id].o[+b.dataset.i]===dd(E[ei],ei,m,step))resolve(b.dataset.k);
+    else fail("Mauvais choix. Redemande les détails à la personne venue te voir.");
+  });
+  startTimer();
+}
+
+function route(){
+  clearInterval(tick);
+  const[m,r]=location.hash.slice(1).split("/");
+  if(m!=="sans"&&m!=="avec"){home();return}
+  if(!r){pick(m);return}
+  const id=+r;
+  if(!(id>=1&&id<=15)){pick(m);return}
+  const key=m+"/"+id;
+  if(S.key!==key){Object.assign(S,{key,m,r:id,step:0,times:[],ok:{},open:{},sel:{},msg:{},bad:0,lock:0})}
+  draw();
+}
+window.addEventListener("hashchange",route);
+route();
+</script>
+</body>
+</html>
